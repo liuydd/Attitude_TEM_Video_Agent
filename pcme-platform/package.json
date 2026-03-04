@@ -1,0 +1,10 @@
+{
+  "name": "pcme-platform",
+  "private": true,
+  "version": "0.1.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

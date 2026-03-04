@@ -1,0 +1,259 @@
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { Play, Square, Clock, Eye, EyeOff } from "lucide-react";
+
+import { VideoPlayer } from "@/components/VideoPlayer";
+import { LocalRecorder } from "@/components/LocalRecorder";
+import { PhysioSyncButton } from "@/components/PhysioSyncButton";
+import { VoiceChatPanel } from "@/components/VoiceChatPanel";
+import { timeAnchor } from "@/core/TimeAnchor";
+import { eventLogger } from "@/core/EventLogger";
+import { MediaRecorderManager } from "@/core/MediaRecorderManager";
+import { useExperimentStore } from "@/stores/experimentStore";
+import { useVoiceChat } from "@/hooks/useVoiceChat";
+import { api } from "@/types/api";
+
+export function ExperimentSession() {
+  const navigate = useNavigate();
+  const { experiment, session, setRecordingResult, updateSessionStatus } =
+    useExperimentStore();
+
+  const [isStarted, setIsStarted] = useState(false);
+  const [videoTime, setVideoTime] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const recorderRef = useRef<MediaRecorderManager | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [codecSupported, setCodecSupported] = useState(true);
+  const [showCameraPreview, setShowCameraPreview] = useState(false);
+
+  const videoTimeRef = useRef(0);
+  const voiceChat = useVoiceChat(session?.id ?? "", videoTimeRef);
+
+  // Check codec support on mount
+  useEffect(() => {
+    const mime = MediaRecorderManager.getSupportedMime();
+    if (!mime) {
+      setCodecSupported(false);
+    }
+  }, []);
+
+  // Elapsed timer
+  useEffect(() => {
+    if (!isStarted) return;
+    const interval = setInterval(() => {
+      setElapsed(timeAnchor.elapsed());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isStarted]);
+
+  // Redirect if no session
+  useEffect(() => {
+    if (!session) {
+      navigate("/");
+    }
+  }, [session, navigate]);
+
+  const handleStart = async () => {
+    if (!session) return;
+
+    // 1. Init recorder
+    const recorder = new MediaRecorderManager();
+    recorderRef.current = recorder;
+    try {
+      const mediaStream = await recorder.requestMedia();
+      setStream(mediaStream);
+    } catch (e) {
+      alert(`摄像头/麦克风访问失败: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+
+    // 2. Anchor timestamp
+    const anchor = timeAnchor.start();
+
+    // 3. Start recording
+    recorder.start();
+    setIsRecording(true);
+
+    // 4. Update session on server
+    await api.patch(`sessions/${session.id}`, {
+      json: {
+        status: "recording",
+        anchor_timestamp_ms: anchor,
+        started_at: new Date().toISOString(),
+      },
+    });
+    updateSessionStatus("recording");
+
+    eventLogger.log("session_start", { anchor_timestamp_ms: anchor }, "system");
+    setIsStarted(true);
+  };
+
+  const handleVideoEnd = useCallback(() => {
+    eventLogger.log("video_ended", {}, "video_player");
+  }, []);
+
+  const handleStop = async () => {
+    if (!recorderRef.current || !session) return;
+
+    // Stop voice chat if active
+    if (voiceChat.isEnabled) {
+      voiceChat.stop();
+    }
+
+    // Stop recording
+    const result = await recorderRef.current.stop();
+    setIsRecording(false);
+    setRecordingResult(result);
+    recorderRef.current.release();
+
+    eventLogger.log("session_end", { total_events: eventLogger.count }, "system");
+
+    // Update session status
+    await api.patch(`sessions/${session.id}`, {
+      json: { status: "questionnaire" },
+    });
+    updateSessionStatus("questionnaire");
+
+    navigate("/questionnaire");
+  };
+
+  if (!experiment || !session) return null;
+
+  const formatTime = (ms: number) => {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    return `${String(h).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-gray-100 p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h1 className="text-lg font-bold">{experiment.name}</h1>
+          <span className="text-xs text-gray-400">
+            {experiment.group_type === "control" ? "对照组" : "实验组"} ·
+            会话 {session.id.slice(0, 8)}
+          </span>
+        </div>
+        <div className="flex items-center gap-4">
+          {isStarted && (
+            <div className="flex items-center gap-1 text-sm text-gray-300">
+              <Clock className="w-4 h-4" />
+              {formatTime(elapsed)}
+            </div>
+          )}
+          {isStarted && (
+            <PhysioSyncButton />
+          )}
+        </div>
+      </div>
+
+      {!codecSupported && (
+        <div className="bg-yellow-900/50 border border-yellow-700 text-yellow-200 px-4 py-2 rounded mb-4">
+          当前浏览器不支持 WebM 录制，请使用 Chrome 浏览器
+        </div>
+      )}
+
+      {/* Main content */}
+      <div className="grid grid-cols-4 gap-4" style={{ height: "calc(100vh - 120px)" }}>
+        {/* Video player - 3/4 width */}
+        <div className="col-span-3">
+          <VideoPlayer
+            src={`/training-videos/${experiment.training_video_filename}`}
+            onTimeUpdate={(t) => {
+              setVideoTime(t);
+              videoTimeRef.current = t;
+            }}
+            onEnded={handleVideoEnd}
+          />
+          <div className="mt-2 text-xs text-gray-500">
+            视频进度: {videoTime.toFixed(1)}s · 事件数: {eventLogger.count}
+          </div>
+        </div>
+
+        {/* Right sidebar - 1/4 width */}
+        <div className="flex flex-col gap-3 min-h-0">
+          {/* Camera preview with toggle */}
+          <div className="relative">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-gray-400">
+                {isRecording ? "录制中" : "录制预览"}
+              </span>
+              <button
+                onClick={() => setShowCameraPreview(!showCameraPreview)}
+                className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 transition-colors"
+                title={showCameraPreview ? "隐藏摄像头预览" : "显示摄像头预览"}
+              >
+                {showCameraPreview ? (
+                  <><EyeOff className="w-3 h-3" />隐藏</>
+                ) : (
+                  <><Eye className="w-3 h-3" />显示</>
+                )}
+              </button>
+            </div>
+            {showCameraPreview ? (
+              <LocalRecorder stream={stream} isRecording={isRecording} />
+            ) : (
+              <div className="flex items-center justify-center h-8 bg-gray-900 rounded-lg border border-gray-700 text-xs text-gray-500">
+                {isRecording && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    录制进行中
+                  </span>
+                )}
+                {!isRecording && "摄像头预览已隐藏"}
+              </div>
+            )}
+          </div>
+
+          {/* Voice chat panel - fills remaining space */}
+          {isStarted && (
+            <div className="flex-1 min-h-0">
+              <VoiceChatPanel
+                isEnabled={voiceChat.isEnabled}
+                connectionStatus={voiceChat.connectionStatus}
+                voiceMode={voiceChat.voiceMode}
+                turns={voiceChat.turns}
+                currentPartialTranscript={voiceChat.currentPartialTranscript}
+                currentPartialSpeaker={voiceChat.currentPartialSpeaker}
+                isAiSpeaking={voiceChat.isAiSpeaking}
+                onStart={voiceChat.start}
+                onStop={voiceChat.stop}
+                onInterrupt={voiceChat.interrupt}
+              />
+            </div>
+          )}
+
+          {/* Controls */}
+          {!isStarted ? (
+            <button
+              onClick={handleStart}
+              disabled={!codecSupported}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+            >
+              <Play className="w-5 h-5" />
+              开始实验
+            </button>
+          ) : (
+            <button
+              onClick={handleStop}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+            >
+              <Square className="w-5 h-5" />
+              结束实验
+            </button>
+          )}
+
+          <div className="bg-gray-900 rounded-lg p-3 text-xs text-gray-400 space-y-1">
+            <p>状态: {session.status}</p>
+            <p>锚点: {timeAnchor.isStarted ? timeAnchor.anchorMs : "未设置"}</p>
+            <p>录制: {isRecording ? "进行中" : "未开始"}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
