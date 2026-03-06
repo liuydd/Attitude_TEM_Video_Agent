@@ -128,54 +128,8 @@ _PHYSIO_CHANNEL_MAP: dict[str, list[tuple[str, str, str, str]]] = {
 }
 
 
-def _find_physio_sync_ts(events: list[dict]) -> int | None:
-    """Return the ts_abs of the first physio_sync button press event."""
-    for e in events:
-        if e.get("event_type") == "physio_sync":
-            ts = e.get("ts_abs")
-            if isinstance(ts, (int, float)) and ts > 0:
-                return int(ts)
-    return None
-
-
-def _estimate_clock_offset(csv_path: Path, sync_computer_ts: int) -> int:
-    """Scan a CSV to find the wristband timestamp closest to *sync_computer_ts*.
-
-    Returns the clock offset ``wristband_ts - computer_ts`` (milliseconds).
-    If the two clocks are perfectly synced the offset is ~0.
-    """
-    closest_ts: int | None = None
-    min_diff = float("inf")
-    try:
-        with open(csv_path, encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                ts_str = (row.get("timeStamp") or "").strip()
-                if not ts_str:
-                    continue
-                try:
-                    ts_ms = int(ts_str)
-                except ValueError:
-                    continue
-                diff = abs(ts_ms - sync_computer_ts)
-                if diff < min_diff:
-                    min_diff = diff
-                    closest_ts = ts_ms
-    except Exception:
-        return 0
-    if closest_ts is None:
-        return 0
-    return closest_ts - sync_computer_ts
-
-
 def _load_physio(session: dict, events: list[dict] | None = None) -> PhysioData:
-    """Load physio CSV files from session's physio data folder.
-
-    If a ``physio_sync`` event exists in the event log, its computer-side
-    timestamp is matched against the closest CSV row to compute a clock
-    offset between the experiment PC and the wristband.  This corrects for
-    any drift between the two clocks.
-    """
+    """Load physio CSV files from session's physio data folder."""
     session_id = session["id"]
     physio_rel = session.get("physio_data_path")
 
@@ -211,25 +165,10 @@ def _load_physio(session: dict, events: list[dict] | None = None) -> PhysioData:
 
     anchor_ms = session.get("anchor_timestamp_ms")
 
-    # --- Clock offset calibration via physio_sync event ---
-    # The wristband clock may differ from the experiment PC clock.  When the
-    # experimenter presses the "生理同步打点" button, we record the PC's
-    # ts_abs.  We then find the nearest CSV row (wristband time) and compute
-    # offset = wristband_ts - pc_ts.  Adjusting anchor_ms by this offset
-    # maps CSV timestamps into the camera timeline correctly.
-    clock_offset = 0
-    sync_ts = _find_physio_sync_ts(events or [])
-    if sync_ts is not None and csv_files:
-        # Use the first available CSV to estimate offset (all share one clock)
-        first_csv = next(iter(csv_files.values()))
-        clock_offset = _estimate_clock_offset(first_csv, sync_ts)
-
-    effective_anchor = (anchor_ms + clock_offset) if anchor_ms is not None else None
-
     channels: list[PhysioChannel] = []
     for sensor_type, csv_path in csv_files.items():
         channel_defs = _PHYSIO_CHANNEL_MAP[sensor_type]
-        parsed = _parse_physio_csv(csv_path, channel_defs, effective_anchor)
+        parsed = _parse_physio_csv(csv_path, channel_defs, anchor_ms)
         channels.extend(parsed)
 
     return PhysioData(

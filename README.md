@@ -257,36 +257,9 @@ sequenceDiagram
 
 ## 生理数据接入
 
-### 时间对齐机制
+### 时间对齐
 
-手环和实验电脑是两套独立时钟，可能存在秒级甚至分钟级的偏差。系统通过 **生理同步打点** 按钮实现跨设备时间校准：
-
-```mermaid
-sequenceDiagram
-    participant W as 生理手环
-    participant PC as 实验电脑
-    participant E as 实验员
-
-    Note over W,PC: 两套独立时钟，可能有偏差
-
-    E->>PC: 按下 "生理同步打点" 按钮
-    PC->>PC: 记录 physio_sync 事件<br/>ts_abs = 电脑时间 T_pc
-
-    Note over W: 手环持续记录中<br/>timeStamp = 手环时间 T_wristband
-
-    Note over W,PC: 后端加载时自动校准
-    PC->>PC: 在 CSV 中找到最近的行<br/>clock_offset = T_wristband - T_pc
-    PC->>PC: 修正锚点 = anchor_ms + clock_offset
-```
-
-**操作流程：**
-1. 启动手环录制
-2. 在实验控制台开始会话
-3. **在实验过程中按下「生理同步打点」按钮**（建议在实验开始后尽早按一次）
-4. 实验结束后，从手环导出 CSV 放入对应文件夹
-5. 教官工作台加载时自动校准时钟偏移
-
-> 如果未按同步按钮，系统回退到使用 session 起始时间作为锚点（假设两个时钟同步）。
+手环和实验电脑均使用 NTP 同步的系统时钟，CSV 中的 `timeStamp` 列与实验系统的 `anchor_timestamp_ms` 使用相同的 Unix 毫秒纪元，无需额外校准。系统直接用 session 起始时间作为零点换算相对秒数。
 
 ### CSV 文件放置
 
@@ -388,7 +361,7 @@ A: 不需要。API key 仅在实验组采集语音交互时使用。
 A: 放入 `pcme-platform/data/training-videos/` 即可，后端会通过静态文件挂载自动提供访问。实验控制台还需要在 `packages/lab-client/public/training-videos/` 放一份。
 
 **Q: 手环数据怎么对齐时间轴？**
-A: 实验中按下「生理同步打点」按钮，系统会记录电脑时间戳。加载 CSV 时自动查找最近的手环时间戳，计算时钟偏移并校准。即使手环和电脑时钟不同步（差几秒到几分钟），也能自动对齐。如果忘了按同步按钮，系统会假设两个时钟同步，使用 session 起始时间作为锚点。
+A: 手环和电脑使用相同的 NTP 时钟源，CSV 中的 `timeStamp` 与系统的 `anchor_timestamp_ms` 都是 Unix 毫秒时间戳，系统直接相减换算为相对秒数，无需额外校准。
 
 **Q: 录像回放时进度条显示 Infinity？**
 A: WebM 格式录像可能缺少时长元数据，系统已通过 session 的 `started_at` / `ended_at` 自动计算回退时长。

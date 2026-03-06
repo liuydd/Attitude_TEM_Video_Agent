@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -92,6 +92,8 @@ function buildChannelsFromPhysioData(physio: PhysioData): ChartChannel[] {
 
 export function PhysioChart({ events, anchorMs, currentTime, physio }: Props) {
   const { duration } = useReviewStore();
+  const [collapsed, setCollapsed] = useState(false);
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
 
   const channels = useMemo(() => {
     // Prefer structured physio data from backend CSV parsing
@@ -101,6 +103,20 @@ export function PhysioChart({ events, anchorMs, currentTime, physio }: Props) {
     // Fallback to event log physio_sync events
     return buildChannelsFromEvents(events, anchorMs);
   }, [physio, events, anchorMs]);
+
+  const visibleChannels = useMemo(
+    () => channels.filter((ch) => !hiddenKeys.has(ch.key)),
+    [channels, hiddenKeys]
+  );
+
+  const toggleChannel = (key: string) => {
+    setHiddenKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   // No data — show placeholder
   if (channels.length === 0) {
@@ -130,31 +146,66 @@ export function PhysioChart({ events, anchorMs, currentTime, physio }: Props) {
   return (
     <div>
       <div className="text-xs text-slate-400 mb-1 flex items-center gap-2">
-        生理特征数据
+        <button
+          onClick={() => setCollapsed((v) => !v)}
+          className="flex items-center gap-1 hover:text-slate-300 transition-colors"
+        >
+          <svg
+            className={`w-3 h-3 transition-transform ${collapsed ? "" : "rotate-90"}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          生理特征数据
+        </button>
         <span className="text-slate-600 text-[10px]">(Physiological Signals)</span>
-        <div className="flex gap-2 ml-auto">
-          {channels.map((ch) => (
-            <span key={ch.key} className="flex items-center gap-1 text-[10px]">
-              <span
-                className="inline-block w-2 h-2 rounded-full"
-                style={{ backgroundColor: ch.color }}
-              />
-              {ch.label}
-            </span>
-          ))}
+
+        {/* Channel toggle chips */}
+        <div className="flex gap-1.5 ml-auto flex-wrap">
+          {channels.map((ch) => {
+            const hidden = hiddenKeys.has(ch.key);
+            return (
+              <button
+                key={ch.key}
+                onClick={() => toggleChannel(ch.key)}
+                className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-all ${
+                  hidden
+                    ? "opacity-40 line-through hover:opacity-60"
+                    : "opacity-100 hover:bg-slate-700/50"
+                }`}
+              >
+                <span
+                  className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: hidden ? "#475569" : ch.color }}
+                />
+                {ch.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="flex flex-col gap-1">
-        {channels.map((ch) => (
-          <SingleChannelChart
-            key={ch.key}
-            channel={ch}
-            currentTime={currentTime}
-            duration={duration}
-          />
-        ))}
-      </div>
+      {!collapsed && (
+        <div className="flex flex-col gap-1">
+          {visibleChannels.length === 0 ? (
+            <div className="bg-slate-800/60 rounded p-3 text-center text-xs text-slate-500">
+              所有通道已隐藏，点击上方标签可重新显示
+            </div>
+          ) : (
+            visibleChannels.map((ch) => (
+              <SingleChannelChart
+                key={ch.key}
+                channel={ch}
+                currentTime={currentTime}
+                duration={duration}
+              />
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
