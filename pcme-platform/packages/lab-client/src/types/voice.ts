@@ -20,6 +20,14 @@ export interface TranscriptFinalMessage {
   speaker?: number;
 }
 
+export interface TranscriptAggregatedMessage {
+  type: "transcript_aggregated";
+  text: string;       // corrected text
+  raw_text: string;   // original Deepgram STT text
+  turn_id: string;
+  speaker?: number;   // control mode only
+}
+
 export interface LLMDeltaMessage {
   type: "llm_delta";
   text: string;
@@ -52,6 +60,7 @@ export type ServerMessage =
   | ReadyMessage
   | TranscriptPartialMessage
   | TranscriptFinalMessage
+  | TranscriptAggregatedMessage
   | LLMDeltaMessage
   | LLMDoneMessage
   | TTSDoneMessage

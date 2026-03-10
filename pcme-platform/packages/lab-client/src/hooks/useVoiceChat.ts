@@ -6,7 +6,8 @@ import { useVoiceChatStore } from "@/stores/voiceChatStore";
 import type { ServerMessage } from "@/types/voice";
 
 function speakerRole(speaker: number | undefined | null): "speaker_0" | "speaker_1" {
-  return speaker === 1 ? "speaker_1" : "speaker_0";
+  if (speaker === null || speaker === undefined) return "speaker_0";
+  return speaker % 2 === 1 ? "speaker_1" : "speaker_0";
 }
 
 export function useVoiceChat(sessionId: string, videoTimeRef?: React.RefObject<number>) {
@@ -22,6 +23,7 @@ export function useVoiceChat(sessionId: string, videoTimeRef?: React.RefObject<n
     currentPartialTranscript,
     currentPartialSpeaker,
     isAiSpeaking,
+    activeSpeaker,
     setEnabled,
     setConnectionStatus,
     setVoiceMode,
@@ -30,6 +32,7 @@ export function useVoiceChat(sessionId: string, videoTimeRef?: React.RefObject<n
     appendTurnText,
     setPartialTranscript,
     setAiSpeaking,
+    setActiveSpeaker,
     reset,
   } = useVoiceChatStore();
 
@@ -45,11 +48,18 @@ export function useVoiceChat(sessionId: string, videoTimeRef?: React.RefObject<n
           break;
 
         case "transcript_final": {
+          // Both modes: show as partial (accumulating) — bubble created on transcript_aggregated
+          setPartialTranscript(msg.text, msg.speaker);
+          break;
+        }
+
+        case "transcript_aggregated": {
+          // Server accumulated + corrected all fragments
           setPartialTranscript("");
           const mode = useVoiceChatStore.getState().voiceMode;
 
           if (mode === "control") {
-            // Control mode: just show transcript with speaker label
+            // Control mode: speaker bubble with corrected text
             addTurn({
               turn_id: msg.turn_id,
               role: speakerRole(msg.speaker),
@@ -57,7 +67,7 @@ export function useVoiceChat(sessionId: string, videoTimeRef?: React.RefObject<n
               status: "final",
             });
           } else {
-            // Agent mode: user bubble + prepare AI response bubble
+            // Agent mode: user bubble + AI response bubble
             addTurn({
               turn_id: msg.turn_id,
               role: "user",
@@ -162,6 +172,14 @@ export function useVoiceChat(sessionId: string, videoTimeRef?: React.RefObject<n
     setAiSpeaking(false);
   }, [setAiSpeaking]);
 
+  const switchSpeaker = useCallback(
+    (speaker: number) => {
+      setActiveSpeaker(speaker);
+      wsRef.current?.sendSpeaker(speaker);
+    },
+    [setActiveSpeaker]
+  );
+
   // Send video time to backend every second while enabled
   useEffect(() => {
     if (!isEnabled || !videoTimeRef) return;
@@ -182,8 +200,10 @@ export function useVoiceChat(sessionId: string, videoTimeRef?: React.RefObject<n
     currentPartialTranscript,
     currentPartialSpeaker,
     isAiSpeaking,
+    activeSpeaker,
     start,
     stop,
     interrupt,
+    switchSpeaker,
   };
 }

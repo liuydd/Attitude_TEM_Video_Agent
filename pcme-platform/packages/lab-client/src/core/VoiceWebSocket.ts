@@ -103,6 +103,12 @@ export class VoiceWebSocket {
     }
   }
 
+  sendSpeaker(speaker: number): void {
+    if (this._ws?.readyState === WebSocket.OPEN) {
+      this._ws.send(JSON.stringify({ type: "set_speaker", speaker }));
+    }
+  }
+
   close(): void {
     this._shouldReconnect = false;
     if (this._ws) {

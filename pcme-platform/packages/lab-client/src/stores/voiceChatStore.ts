@@ -10,6 +10,7 @@ interface VoiceChatState {
   currentPartialTranscript: string;
   currentPartialSpeaker: number | null;
   isAiSpeaking: boolean;
+  activeSpeaker: number; // 0 = Speaker A, 1 = Speaker B (control mode)
 
   setEnabled: (v: boolean) => void;
   setConnectionStatus: (s: ConnectionStatus) => void;
@@ -19,6 +20,7 @@ interface VoiceChatState {
   appendTurnText: (turn_id: string, delta: string) => void;
   setPartialTranscript: (text: string, speaker?: number | null) => void;
   setAiSpeaking: (v: boolean) => void;
+  setActiveSpeaker: (speaker: number) => void;
   reset: () => void;
 }
 
@@ -30,6 +32,7 @@ const initialState = {
   currentPartialTranscript: "",
   currentPartialSpeaker: null as number | null,
   isAiSpeaking: false,
+  activeSpeaker: 0,
 };
 
 export const useVoiceChatStore = create<VoiceChatState>((set) => ({
@@ -60,6 +63,8 @@ export const useVoiceChatStore = create<VoiceChatState>((set) => ({
     set({ currentPartialTranscript, currentPartialSpeaker: speaker ?? null }),
 
   setAiSpeaking: (isAiSpeaking) => set({ isAiSpeaking }),
+
+  setActiveSpeaker: (activeSpeaker) => set({ activeSpeaker }),
 
   reset: () => set(initialState),
 }));

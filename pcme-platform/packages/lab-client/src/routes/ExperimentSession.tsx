@@ -220,9 +220,11 @@ export function ExperimentSession() {
                 currentPartialTranscript={voiceChat.currentPartialTranscript}
                 currentPartialSpeaker={voiceChat.currentPartialSpeaker}
                 isAiSpeaking={voiceChat.isAiSpeaking}
+                activeSpeaker={voiceChat.activeSpeaker}
                 onStart={voiceChat.start}
                 onStop={voiceChat.stop}
                 onInterrupt={voiceChat.interrupt}
+                onSwitchSpeaker={voiceChat.switchSpeaker}
               />
             </div>
           )}

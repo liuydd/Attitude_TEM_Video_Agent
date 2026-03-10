@@ -9,6 +9,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from openai import AsyncOpenAI
 
 from app.config import settings
 from app.services.deepgram_stt import DeepgramSTTService
@@ -25,6 +26,43 @@ router = APIRouter()
 _active_connections: dict[str, WebSocket] = {}
 
 SENTENCE_ENDINGS = set("。！？.!?")
+
+_CORRECTION_PROMPT = (
+    "你是语音识别纠错助手。修正以下中文语音识别文本中的错别字、同音误识别和专业术语错误。"
+    "规则：1)保持原意不变 2)不添加或删除内容 3)不改变语序 4)只输出修正后的纯文本，不要任何解释。"
+)
+
+_correction_client: AsyncOpenAI | None = None
+
+
+def _get_correction_client() -> AsyncOpenAI:
+    global _correction_client
+    if _correction_client is None:
+        _correction_client = AsyncOpenAI(api_key=settings.openai_api_key)
+    return _correction_client
+
+
+async def _correct_transcript(raw_text: str) -> str:
+    """Use a fast LLM to correct STT errors. Returns corrected text, or raw_text on failure."""
+    try:
+        client = _get_correction_client()
+        resp = await client.chat.completions.create(
+            model=settings.transcript_correction_model,
+            messages=[
+                {"role": "system", "content": _CORRECTION_PROMPT},
+                {"role": "user", "content": raw_text},
+            ],
+            temperature=0,
+            max_tokens=len(raw_text) * 2 + 50,
+        )
+        corrected = (resp.choices[0].message.content or "").strip()
+        if corrected:
+            logger.info("Transcript corrected: %r → %r", raw_text[:80], corrected[:80])
+            return corrected
+        return raw_text
+    except Exception as e:
+        logger.warning("Transcript correction failed, using raw text: %s", e)
+        return raw_text
 
 
 def _session_path(session_id: str):
@@ -71,8 +109,8 @@ async def voice_agent_ws(ws: WebSocket, session_id: str):
     await ws.accept()
     _active_connections[session_id] = ws
 
-    # Init STT — diarize only in control mode (two humans)
-    stt = DeepgramSTTService(diarize=not is_agent_mode)
+    # Init STT — no diarization (control mode uses manual speaker selection)
+    stt = DeepgramSTTService()
 
     # Only init LLM/TTS in agent mode
     llm: LLMService | None = None
@@ -87,6 +125,32 @@ async def voice_agent_ws(ws: WebSocket, session_id: str):
     respond_task: asyncio.Task | None = None
     stt_listener_task: asyncio.Task | None = None
     current_video_time: float = 0.0
+
+    # Accumulation buffer for speech fragments (both modes)
+    _accumulation_buffer: list[str] = []
+    _accumulation_turn_ids: list[str] = []
+    _accumulation_timer: asyncio.Task | None = None
+    _accumulation_speaker: int | None = None  # track speaker for control mode
+
+    # Manual speaker selection (control mode — set by frontend toggle)
+    _manual_speaker: int = 0
+
+    # Normalize Deepgram speaker IDs to {0, 1} (control mode only)
+    _speaker_map: dict[int, int] = {}
+
+    def _normalize_speaker(raw_speaker: int | None) -> int | None:
+        """Map arbitrary Deepgram speaker IDs to 0 or 1 by first-seen order."""
+        if raw_speaker is None:
+            return None
+        if raw_speaker in _speaker_map:
+            return _speaker_map[raw_speaker]
+        if len(_speaker_map) < 2:
+            mapped = len(_speaker_map)  # 0 for first, 1 for second
+            _speaker_map[raw_speaker] = mapped
+            return mapped
+        # Already have 2 speakers; find closest existing mapping
+        # Default to speaker 0 for any unexpected extra IDs
+        return 0
 
     async def _send_json(data: dict) -> None:
         try:
@@ -194,11 +258,78 @@ async def voice_agent_ws(ws: WebSocket, session_id: str):
 
         await asyncio.to_thread(_write)
 
+    # ---- Accumulation buffer helpers (both modes) ----
+
+    async def _flush_accumulation_buffer() -> None:
+        """Timer expired — correct text, send aggregated message, dispatch by mode."""
+        nonlocal respond_task, _accumulation_buffer, _accumulation_turn_ids, _accumulation_timer, _accumulation_speaker
+        if not _accumulation_buffer:
+            return
+
+        raw_text = " ".join(_accumulation_buffer)
+        aggregated_turn_id = _accumulation_turn_ids[-1]  # use last turn_id
+        fragment_count = len(_accumulation_buffer)
+        flushed_speaker = _accumulation_speaker
+
+        _accumulation_buffer = []
+        _accumulation_turn_ids = []
+        _accumulation_timer = None
+        _accumulation_speaker = None
+
+        # Filter ultra-short utterances (filler words like "嗯", "啊")
+        if len(raw_text.strip()) < settings.min_transcript_length:
+            logger.debug("Dropping short utterance (%d chars): %s", len(raw_text.strip()), raw_text)
+            return
+
+        logger.info("Flushing %d fragments (%d chars): %s", fragment_count, len(raw_text), raw_text[:100])
+
+        # Correct STT errors with fast LLM
+        corrected_text = await _correct_transcript(raw_text)
+
+        agg_msg: dict = {
+            "type": "transcript_aggregated",
+            "text": corrected_text,
+            "raw_text": raw_text,
+            "turn_id": aggregated_turn_id,
+        }
+        if flushed_speaker is not None:
+            agg_msg["speaker"] = flushed_speaker
+        await _send_json(agg_msg)
+
+        if is_agent_mode:
+            # Cancel any in-flight LLM response before starting new one
+            if respond_task and not respond_task.done():
+                respond_task.cancel()
+                try:
+                    await respond_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            # Feed corrected text to LLM for better response quality
+            respond_task = asyncio.create_task(_respond(corrected_text, aggregated_turn_id))
+        else:
+            # Control mode: save corrected utterance
+            await _save_control_utterance(aggregated_turn_id, corrected_text, flushed_speaker)
+
+    async def _accumulation_timer_coro() -> None:
+        """Sleep for the configured timeout then flush."""
+        try:
+            await asyncio.sleep(settings.speech_accumulation_timeout)
+            await _flush_accumulation_buffer()
+        except asyncio.CancelledError:
+            pass
+
+    def _reset_accumulation_timer() -> None:
+        """Cancel existing timer (if any) and start a new debounce timer."""
+        nonlocal _accumulation_timer
+        if _accumulation_timer and not _accumulation_timer.done():
+            _accumulation_timer.cancel()
+        _accumulation_timer = asyncio.create_task(_accumulation_timer_coro())
+
     # ---- STT listener (handles both modes) ----
 
     async def _stt_listener() -> None:
         """Listen to Deepgram transcripts and dispatch based on mode."""
-        nonlocal respond_task
+        nonlocal respond_task, _accumulation_speaker
         try:
             async for msg in stt.transcripts():
                 msg_type = msg.get("type", "")
@@ -209,7 +340,9 @@ async def voice_agent_ws(ws: WebSocket, session_id: str):
                     transcript = alternatives[0].get("transcript", "") if alternatives else ""
                     is_final = msg.get("is_final", False)
                     speech_final = msg.get("speech_final", False)
-                    speaker = _extract_speaker(alternatives) if not is_agent_mode else None
+
+                    # Control mode: use manual speaker from frontend toggle
+                    speaker: int | None = _manual_speaker if not is_agent_mode else None
 
                     if transcript:
                         if not is_final:
@@ -220,6 +353,11 @@ async def voice_agent_ws(ws: WebSocket, session_id: str):
                             if speaker is not None:
                                 partial_msg["speaker"] = speaker
                             await _send_json(partial_msg)
+
+                            # Interim results prove someone is still speaking —
+                            # reset debounce timer to prevent premature flush
+                            if _accumulation_buffer:
+                                _reset_accumulation_timer()
 
                         elif is_final:
                             turn_id = str(uuid.uuid4())
@@ -232,21 +370,19 @@ async def voice_agent_ws(ws: WebSocket, session_id: str):
                                 final_msg["speaker"] = speaker
                             await _send_json(final_msg)
 
-                            if speech_final:
-                                if is_agent_mode:
-                                    # Agent mode: trigger LLM response
-                                    if respond_task and not respond_task.done():
-                                        respond_task.cancel()
-                                        try:
-                                            await respond_task
-                                        except (asyncio.CancelledError, Exception):
-                                            pass
-                                    respond_task = asyncio.create_task(
-                                        _respond(transcript, turn_id)
-                                    )
-                                else:
-                                    # Control mode: just save the utterance
-                                    await _save_control_utterance(turn_id, transcript, speaker)
+                            # Control mode: flush buffer on speaker change
+                            if not is_agent_mode and _accumulation_buffer and speaker != _accumulation_speaker:
+                                await _flush_accumulation_buffer()
+
+                            # Both modes: accumulate all is_final chunks
+                            _accumulation_buffer.append(transcript)
+                            _accumulation_turn_ids.append(turn_id)
+                            _accumulation_speaker = speaker
+                            _reset_accumulation_timer()
+                            logger.debug(
+                                "Accumulated chunk (speech_final=%s, buffer_size=%d, speaker=%s): %s",
+                                speech_final, len(_accumulation_buffer), speaker, transcript[:60],
+                            )
 
         except asyncio.CancelledError:
             pass
@@ -285,6 +421,12 @@ async def voice_agent_ws(ws: WebSocket, session_id: str):
                     continue
 
                 if ctrl.get("type") == "interrupt" and is_agent_mode:
+                    # Cancel accumulation timer and clear buffer first
+                    if _accumulation_timer and not _accumulation_timer.done():
+                        _accumulation_timer.cancel()
+                    _accumulation_buffer.clear()
+                    _accumulation_turn_ids.clear()
+
                     turn_id = ""
                     if respond_task and not respond_task.done():
                         turn_id = "current"
@@ -298,6 +440,14 @@ async def voice_agent_ws(ws: WebSocket, session_id: str):
                 elif ctrl.get("type") == "video_time":
                     current_video_time = float(ctrl.get("time", 0))
 
+                elif ctrl.get("type") == "set_speaker" and not is_agent_mode:
+                    new_speaker = int(ctrl.get("speaker", 0))
+                    # Flush current buffer before switching (different speaker's text)
+                    if _accumulation_buffer and new_speaker != _manual_speaker:
+                        await _flush_accumulation_buffer()
+                    _manual_speaker = new_speaker
+                    logger.debug("Manual speaker set to %d", _manual_speaker)
+
                 elif ctrl.get("type") == "config":
                     logger.info("Runtime config update: %s", ctrl)
 
@@ -308,6 +458,8 @@ async def voice_agent_ws(ws: WebSocket, session_id: str):
         await _send_json({"type": "error", "message": str(e), "code": "internal"})
     finally:
         # Cleanup
+        if _accumulation_timer and not _accumulation_timer.done():
+            _accumulation_timer.cancel()
         if stt_listener_task:
             stt_listener_task.cancel()
             try:

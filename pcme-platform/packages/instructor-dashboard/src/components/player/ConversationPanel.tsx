@@ -87,10 +87,10 @@ export function ConversationPanel({
                 <div>
                   <span
                     className={`font-medium ${
-                      SPEAKER_STYLES[turn.speaker ?? 0]?.color ?? "text-slate-400"
+                      SPEAKER_STYLES[(turn.speaker ?? 0) % 2]?.color ?? "text-slate-400"
                     }`}
                   >
-                    {SPEAKER_STYLES[turn.speaker ?? 0]?.label ?? `说话人 ${turn.speaker}`}:{" "}
+                    {SPEAKER_STYLES[(turn.speaker ?? 0) % 2]?.label ?? `说话人 ${turn.speaker}`}:{" "}
                   </span>
                   <span className="text-slate-300">{turn.text}</span>
                 </div>

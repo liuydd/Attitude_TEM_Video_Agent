@@ -20,17 +20,18 @@ DEEPGRAM_WS_URL = "wss://api.deepgram.com/v1/listen"
 class DeepgramSTTService:
     """Streams raw PCM audio to Deepgram and yields transcription events."""
 
-    def __init__(self, *, language: str | None = None, diarize: bool = False) -> None:
+    def __init__(self, *, language: str | None = None, diarize: bool = False, endpointing_ms: int | None = None) -> None:
         self._ws: ClientConnection | None = None
         self._language = language or settings.deepgram_language
         self._diarize = diarize
+        self._endpointing_ms = endpointing_ms if endpointing_ms is not None else settings.endpointing_ms
         self._closed = False
 
     async def connect(self) -> None:
         params = (
             f"encoding=linear16&sample_rate=16000&channels=1"
             f"&model=nova-2&language={self._language}"
-            f"&interim_results=true&utterance_end_ms=1200&vad_events=true"
+            f"&interim_results=true&endpointing={self._endpointing_ms}&vad_events=true"
         )
         if self._diarize:
             params += "&diarize=true"

@@ -18,9 +18,11 @@ interface VoiceChatPanelProps {
   currentPartialTranscript: string;
   currentPartialSpeaker: number | null;
   isAiSpeaking: boolean;
+  activeSpeaker: number;
   onStart: () => void;
   onStop: () => void;
   onInterrupt: () => void;
+  onSwitchSpeaker: (speaker: number) => void;
 }
 
 function ChatBubble({ turn }: { turn: ChatTurn }) {
@@ -69,9 +71,11 @@ export function VoiceChatPanel({
   currentPartialTranscript,
   currentPartialSpeaker,
   isAiSpeaking,
+  activeSpeaker,
   onStart,
   onStop,
   onInterrupt,
+  onSwitchSpeaker,
 }: VoiceChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -104,7 +108,26 @@ export function VoiceChatPanel({
           <StatusDot status={connectionStatus} />
           <span>{modeLabel}</span>
         </div>
-        {voiceMode === "control" && (
+        {voiceMode === "control" && isEnabled && (
+          <label className="flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer select-none">
+            <span className={`flex items-center gap-1 ${activeSpeaker === 0 ? "text-emerald-400 font-medium" : ""}`}>
+              <span className="w-2 h-2 rounded-full bg-emerald-600" /> A
+            </span>
+            <input
+              type="checkbox"
+              checked={activeSpeaker === 1}
+              onChange={(e) => onSwitchSpeaker(e.target.checked ? 1 : 0)}
+              className="sr-only peer"
+            />
+            <span className="relative w-7 h-4 bg-gray-700 rounded-full peer peer-checked:bg-amber-800 transition-colors">
+              <span className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${activeSpeaker === 1 ? "translate-x-3" : ""}`} />
+            </span>
+            <span className={`flex items-center gap-1 ${activeSpeaker === 1 ? "text-amber-400 font-medium" : ""}`}>
+              B <span className="w-2 h-2 rounded-full bg-amber-600" />
+            </span>
+          </label>
+        )}
+        {voiceMode === "control" && !isEnabled && (
           <div className="flex items-center gap-2 text-[10px]">
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-emerald-600" /> A
