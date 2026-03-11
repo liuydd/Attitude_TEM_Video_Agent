@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     tts_voice: str = "alloy"
     deepgram_language: str = "zh"
     endpointing_ms: int = 500                      # Deepgram endpointing: ms of silence before speech_final fires
-    speech_accumulation_timeout: float = 1.5        # Server debounce: seconds after last transcript activity
+    speech_accumulation_timeout: float = 3        # Server debounce: seconds after last transcript activity
     min_transcript_length: int = 4                  # Minimum chars to trigger LLM (filters "嗯" "啊")
     transcript_correction_model: str = "gpt-4o-mini" # Fast model for STT text correction
 

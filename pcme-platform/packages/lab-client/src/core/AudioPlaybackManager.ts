@@ -1,25 +1,27 @@
 /**
  * AudioPlaybackManager — plays PCM 24kHz 16-bit LE mono audio chunks in sequence.
  *
- * Queues AudioBuffers and plays them back-to-back for seamless TTS playback.
+ * Pre-schedules AudioBuffers on arrival using precise timing (_nextStartTime)
+ * to eliminate gaps between chunks. Web Audio's hardware scheduler guarantees
+ * sample-accurate playback without relying on JS event loop timing.
  */
 
 export class AudioPlaybackManager {
   private _audioContext: AudioContext | null = null;
-  private _queue: AudioBuffer[] = [];
-  private _currentSource: AudioBufferSourceNode | null = null;
-  private _isPlaying = false;
+  private _scheduledCount = 0;
   private _nextStartTime = 0;
+  private _interrupted = false;
 
   onPlaybackEnd: (() => void) | null = null;
 
   init(): void {
     if (!this._audioContext) {
-      this._audioContext = new AudioContext({ sampleRate: 24000 });
+      this._audioContext = new AudioContext();
     }
   }
 
   enqueue(pcmArrayBuffer: ArrayBuffer): void {
+    if (this._interrupted) return;
     if (!this._audioContext) this.init();
     const ctx = this._audioContext!;
 
@@ -30,67 +32,54 @@ export class AudioPlaybackManager {
       float32[i] = int16[i] / 32768;
     }
 
+    // Create buffer at source sample rate — browser resamples to hardware rate
     const audioBuffer = ctx.createBuffer(1, float32.length, 24000);
     audioBuffer.getChannelData(0).set(float32);
 
-    this._queue.push(audioBuffer);
-    if (!this._isPlaying) {
-      this._playNext();
-    }
-  }
-
-  interrupt(): void {
-    this._queue = [];
-    if (this._currentSource) {
-      try {
-        this._currentSource.stop();
-      } catch {
-        // already stopped
-      }
-      this._currentSource = null;
-    }
-    this._isPlaying = false;
-    this._nextStartTime = 0;
-  }
-
-  private _playNext(): void {
-    if (!this._audioContext || this._queue.length === 0) {
-      this._isPlaying = false;
-      this._nextStartTime = 0;
-      this.onPlaybackEnd?.();
-      return;
-    }
-
-    this._isPlaying = true;
-    const ctx = this._audioContext;
-    const buffer = this._queue.shift()!;
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-
+    // Schedule immediately with precise timing — no waiting for onended
     const now = ctx.currentTime;
-    const startAt = Math.max(now, this._nextStartTime);
+    const startAt = Math.max(now + 0.01, this._nextStartTime); // 10ms min lead time
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
     source.start(startAt);
-    this._nextStartTime = startAt + buffer.duration;
+    this._nextStartTime = startAt + audioBuffer.duration;
 
-    this._currentSource = source;
+    this._scheduledCount++;
     source.onended = () => {
-      if (this._currentSource === source) {
-        this._currentSource = null;
+      this._scheduledCount--;
+      if (this._scheduledCount === 0 && !this._interrupted) {
+        this._nextStartTime = 0;
+        this.onPlaybackEnd?.();
       }
-      this._playNext();
     };
   }
 
+  interrupt(): void {
+    this._interrupted = true;
+    if (this._audioContext) {
+      // Close and recreate context to stop all scheduled sources instantly
+      this._audioContext.close();
+      this._audioContext = null;
+    }
+    this._scheduledCount = 0;
+    this._nextStartTime = 0;
+    // Reinit for future use
+    this._interrupted = false;
+    this.init();
+  }
+
   get isPlaying(): boolean {
-    return this._isPlaying;
+    return this._scheduledCount > 0;
   }
 
   destroy(): void {
-    this.interrupt();
+    this._interrupted = true;
     if (this._audioContext) {
       this._audioContext.close();
       this._audioContext = null;
     }
+    this._scheduledCount = 0;
+    this._nextStartTime = 0;
   }
 }
