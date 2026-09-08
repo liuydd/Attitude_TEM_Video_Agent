@@ -369,3 +369,26 @@ A: WebM 格式录像可能缺少时长元数据，系统已通过 session 的 `s
 ## License
 
 本项目仅供学术研究使用。
+
+## BrainLink Pro EEG 采集
+
+BrainLink Pro 必须连接运行实验控制台的 Windows 电脑，不能由远程 Linux 服务器直接采集。首次使用，在 `pcme-platform/server/` 运行 `uv sync --extra eeg`；从官方 SDK 取得适配 Python 3.11 的 `BrainLinkParser.pyd`，置于 `server/tools/vendor/BrainLinkParser.pyd`。
+
+在 Windows 蓝牙设置中配对头箍，并确认其**输出** COM 端口（例如 `COM5`）。每次实验前，在独立 PowerShell 窗口运行：
+
+```powershell
+cd pcme-platform/server
+.\.venv\Scripts\python.exe tools\brainlink_bridge.py --port COM5
+```
+
+桥接仅监听 `127.0.0.1:8765`。实验控制台显示“已连接 COMx”后，点击“开始实验”会以本次 session 的 `anchor_timestamp_ms` 自动开始 EEG 记录；点击“结束实验”会封存数据。若桥接或头箍未就绪，控制台不会开始实验。
+
+每个 session 的数据保存为：
+
+```text
+data/physio_data/{session_id}/eeg/
+├── brainlink_raw.csv       # timestamp_ms, raw_eeg
+└── brainlink_features.csv  # 信号质量、注意力、冥想、频段功率、心率等
+```
+
+原始 EEG 是高频研究资料，不应直接在回放页面逐点绘制；离线分析前应先做信号质量检查、滤波、伪迹处理及降采样。实验结束后确认 `brainlink_raw.csv` 非空，并检查桥接窗口没有串口或解析错误。

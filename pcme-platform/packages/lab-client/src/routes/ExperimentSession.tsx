@@ -26,6 +26,8 @@ export function ExperimentSession() {
   const [isRecording, setIsRecording] = useState(false);
   const [codecSupported, setCodecSupported] = useState(true);
   const [showCameraPreview, setShowCameraPreview] = useState(false);
+  const [eegStatus, setEegStatus] = useState("正在检查 BrainLink…");
+  const EEG_BRIDGE_URL = "http://127.0.0.1:8765";
 
   const videoTimeRef = useRef(0);
   const voiceChat = useVoiceChat(session?.id ?? "", videoTimeRef);
@@ -36,6 +38,13 @@ export function ExperimentSession() {
     if (!mime) {
       setCodecSupported(false);
     }
+  }, []);
+
+  useEffect(() => {
+    fetch(`${EEG_BRIDGE_URL}/status`)
+      .then((r) => r.json())
+      .then((data) => setEegStatus(data.connected ? `已连接 ${data.port}` : "桥接程序未连接头箍"))
+      .catch(() => setEegStatus("桥接程序未启动"));
   }, []);
 
   // Elapsed timer
@@ -71,6 +80,18 @@ export function ExperimentSession() {
     // 2. Anchor timestamp
     const anchor = timeAnchor.start();
 
+    try {
+      const response = await fetch(`${EEG_BRIDGE_URL}/recordings/start`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.id, anchor_timestamp_ms: anchor }),
+      });
+      if (!response.ok) throw new Error((await response.json()).error ?? "EEG bridge error");
+      setEegStatus("EEG 原始波形采集中");
+    } catch (e) {
+      alert(`无法开始 EEG 采集：${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+
     // 3. Start recording
     recorder.start();
     setIsRecording(true);
@@ -99,6 +120,14 @@ export function ExperimentSession() {
     // Stop voice chat if active
     if (voiceChat.isEnabled) {
       voiceChat.stop();
+    }
+
+    try {
+      const response = await fetch(`${EEG_BRIDGE_URL}/recordings/stop`, { method: "POST" });
+      const result = await response.json();
+      setEegStatus(`EEG 已保存：${result.sample_count ?? 0} 个原始采样`);
+    } catch (e) {
+      setEegStatus(`EEG 停止请求失败：${e instanceof Error ? e.message : String(e)}`);
     }
 
     // Stop recording
@@ -253,6 +282,7 @@ export function ExperimentSession() {
             <p>状态: {session.status}</p>
             <p>锚点: {timeAnchor.isStarted ? timeAnchor.anchorMs : "未设置"}</p>
             <p>录制: {isRecording ? "进行中" : "未开始"}</p>
+            <p>EEG: {eegStatus}</p>
           </div>
         </div>
       </div>

@@ -15,6 +15,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+eeg = [
+    "pyserial>=3.5",
+]
+
 db = [
     "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30.0",

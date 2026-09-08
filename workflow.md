@@ -821,3 +821,23 @@ cat data/metadata/evaluations/<SESSION_ID>.json | python3 -m json.tool
 | 旧会话数据 | 早期创建的会话可能缺少 `training_video_filename` 字段，教官页面会自动从实验配置中回溯获取 |
 | 文件大小 | 摄像头录像可达数百 MB，上传需要稳定网络，支持流式写入 + SHA256 校验 |
 | 生理数据对齐 | 通过 `anchor_timestamp_ms` + `physio_sync` 事件作为对齐锚点 |
+
+### BrainLink Pro EEG 实验前检查
+
+头箍与实验控制台必须在同一台 Windows 电脑上。开始每位被试前，确认头箍未被手机或其他应用占用；在 Windows 蓝牙设置中找到 BrainLink Pro 的**输出** COM 端口，而非输入端口。启动本地桥接：
+
+```powershell
+cd pcme-platform/server
+.\.venv\Scripts\python.exe tools\brainlink_bridge.py --port COM5
+```
+
+确认桥接窗口显示 `BrainLink bridge ready`，再打开实验控制台。右侧 EEG 状态必须为“已连接 COMx”。此后点击“开始实验”，系统会使用同一 session 时间锚点自动记录 EEG；点击“结束实验”自动关闭 CSV 文件。不得通过关闭桥接窗口、断开蓝牙或让手机连接头箍的方式停止记录。
+
+若提示桥接未启动或未连接头箍：停止实验准备，检查 COM 端口、头箍电量以及是否被其他设备占用，然后重新启动桥接；不要在 EEG 未就绪时开始视频。实验完成后确认：
+
+```text
+data/physio_data/{session_id}/eeg/brainlink_raw.csv
+data/physio_data/{session_id}/eeg/brainlink_features.csv
+```
+
+`brainlink_raw.csv` 的每一行均含采样回调时刻的 `timestamp_ms` 和 `raw_eeg`，相对录像时间为 `(timestamp_ms - anchor_timestamp_ms) / 1000`。如文件为空、桥接出现串口/解析错误或中断，应将该 session 的 EEG 标记为不完整，不能把缺失区间解释为脑活动变化。
