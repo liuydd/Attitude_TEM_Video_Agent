@@ -8,6 +8,7 @@ interface VideoPlayerProps {
   discussionPoints?: DiscussionPoint[];
   completedDiscussionIds?: number[];
   onDiscussionPoint?: (point: DiscussionPoint) => void;
+  resumeDiscussionId?: number | null;
 }
 export interface DiscussionPoint { id: number; pause_sec: number; prompt: string; }
 
@@ -16,7 +17,7 @@ export interface DiscussionPoint { id: number; pause_sec: number; prompt: string
  *
  * 挂载全事件监听，所有视频状态变化都通过 EventLogger 打点
  */
-export function VideoPlayer({ src, onTimeUpdate, onEnded, discussionPoints = [], completedDiscussionIds = [], onDiscussionPoint }: VideoPlayerProps) {
+export function VideoPlayer({ src, onTimeUpdate, onEnded, discussionPoints = [], completedDiscussionIds = [], onDiscussionPoint, resumeDiscussionId }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const triggeredRef = useRef(new Set<number>());
 
@@ -26,6 +27,10 @@ export function VideoPlayer({ src, onTimeUpdate, onEnded, discussionPoints = [],
     },
     []
   );
+
+  useEffect(() => {
+    if (resumeDiscussionId != null) videoRef.current?.play().catch(() => undefined);
+  }, [resumeDiscussionId]);
 
   useEffect(() => {
     const video = videoRef.current;

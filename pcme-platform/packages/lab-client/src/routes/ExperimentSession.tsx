@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Play, Square, Clock, Eye, EyeOff } from "lucide-react";
 
-import { VideoPlayer } from "@/components/VideoPlayer";
+import { VideoPlayer, type DiscussionPoint } from "@/components/VideoPlayer";
+import { AttitudeQuestionnaire } from "@/components/AttitudeQuestionnaire";
 import { LocalRecorder } from "@/components/LocalRecorder";
 import { PhysioSyncButton } from "@/components/PhysioSyncButton";
 import { VoiceChatPanel } from "@/components/VoiceChatPanel";
@@ -26,6 +27,10 @@ export function ExperimentSession() {
   const [isRecording, setIsRecording] = useState(false);
   const [codecSupported, setCodecSupported] = useState(true);
   const [showCameraPreview, setShowCameraPreview] = useState(false);
+  const [discussionPoints, setDiscussionPoints] = useState<DiscussionPoint[]>([]);
+  const [pendingPoint, setPendingPoint] = useState<DiscussionPoint | null>(null);
+  const [completedPointIds, setCompletedPointIds] = useState<number[]>([]);
+  const [resumeDiscussionId, setResumeDiscussionId] = useState<number | null>(null);
   const [eegStatus, setEegStatus] = useState("正在检查 BrainLink…");
   const EEG_BRIDGE_URL = "http://127.0.0.1:8765";
 
@@ -62,6 +67,24 @@ export function ExperimentSession() {
       navigate("/");
     }
   }, [session, navigate]);
+
+  useEffect(() => {
+    if (!experiment) return;
+    api.get(`experiments/${experiment.id}/discussion-points`).json<{ items: DiscussionPoint[] }>()
+      .then((data) => setDiscussionPoints(data.items))
+      .catch(() => setDiscussionPoints([]));
+  }, [experiment]);
+
+  const submitTopicAttitude = async (answers: Record<string, number>) => {
+    if (!session || !pendingPoint) return;
+    await api.post(`sessions/${session.id}/questionnaires`, {
+      json: { questionnaire_type: `topic_attitude_${pendingPoint.id}`, answers: { discussion_prompt: pendingPoint.prompt, ...answers } },
+    });
+    eventLogger.log("topic_attitude_submit", { topic_id: pendingPoint.id }, "questionnaire");
+    setCompletedPointIds((ids) => [...ids, pendingPoint.id]);
+    setResumeDiscussionId(pendingPoint.id);
+    setPendingPoint(null);
+  };
 
   const handleStart = async () => {
     if (!session) return;
@@ -197,6 +220,14 @@ export function ExperimentSession() {
               videoTimeRef.current = t;
             }}
             onEnded={handleVideoEnd}
+            discussionPoints={discussionPoints}
+            completedDiscussionIds={completedPointIds}
+            resumeDiscussionId={resumeDiscussionId}
+            onDiscussionPoint={(point) => {
+              eventLogger.log("discussion_pause", { topic_id: point.id, prompt: point.prompt }, "video_player");
+              setResumeDiscussionId(null);
+              setPendingPoint(point);
+            }}
           />
           <div className="mt-2 text-xs text-gray-500">
             视频进度: {videoTime.toFixed(1)}s · 事件数: {eventLogger.count}
@@ -286,6 +317,16 @@ export function ExperimentSession() {
           </div>
         </div>
       </div>
+      {pendingPoint && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 p-6">
+          <div className="mx-auto max-w-3xl rounded-lg bg-gray-900 p-6">
+            <h2 className="mb-3 text-xl font-bold">Topic {pendingPoint.id}：讨论与态度测量</h2>
+            <p className="mb-6 rounded bg-gray-800 p-4 text-gray-200">{pendingPoint.prompt}</p>
+            <p className="mb-4 text-sm text-gray-400">请先完成与 AI 的讨论；随后填写问卷。提交后视频将自动继续播放。</p>
+            <AttitudeQuestionnaire title="请评价本主题及当前的 AI 整体表现" topic overall onSubmit={submitTopicAttitude} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
