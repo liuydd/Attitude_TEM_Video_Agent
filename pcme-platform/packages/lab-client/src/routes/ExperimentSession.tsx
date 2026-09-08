@@ -167,7 +167,7 @@ export function ExperimentSession() {
     });
     updateSessionStatus("questionnaire");
 
-    navigate("/questionnaire");
+    navigate("/post-attitude-questionnaire");
   };
 
   if (!experiment || !session) return null;

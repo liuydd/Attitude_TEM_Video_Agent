@@ -84,7 +84,7 @@ export function ExperimentSetup() {
         .json<Session>();
       setSession(session);
 
-      navigate("/session");
+      navigate("/pre-questionnaire");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
