@@ -5,15 +5,20 @@ interface VideoPlayerProps {
   src: string;
   onTimeUpdate?: (currentTime: number) => void;
   onEnded?: () => void;
+  discussionPoints?: DiscussionPoint[];
+  completedDiscussionIds?: number[];
+  onDiscussionPoint?: (point: DiscussionPoint) => void;
 }
+export interface DiscussionPoint { id: number; pause_sec: number; prompt: string; }
 
 /**
  * VideoPlayer - 同步视频播放器
  *
  * 挂载全事件监听，所有视频状态变化都通过 EventLogger 打点
  */
-export function VideoPlayer({ src, onTimeUpdate, onEnded }: VideoPlayerProps) {
+export function VideoPlayer({ src, onTimeUpdate, onEnded, discussionPoints = [], completedDiscussionIds = [], onDiscussionPoint }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const triggeredRef = useRef(new Set<number>());
 
   const logVideoEvent = useCallback(
     (eventType: string, payload: Record<string, unknown>) => {
@@ -76,6 +81,17 @@ export function VideoPlayer({ src, onTimeUpdate, onEnded }: VideoPlayerProps) {
         lastReportedTime = currentSec;
         onTimeUpdate?.(video.currentTime);
       }
+      const point = discussionPoints.find(
+        (item) =>
+          item.pause_sec <= video.currentTime &&
+          !triggeredRef.current.has(item.id) &&
+          !completedDiscussionIds.includes(item.id)
+      );
+      if (point) {
+        triggeredRef.current.add(point.id);
+        video.pause();
+        onDiscussionPoint?.(point);
+      }
     };
 
     handlers.forEach(([event, handler]) => video.addEventListener(event, handler));
@@ -87,7 +103,7 @@ export function VideoPlayer({ src, onTimeUpdate, onEnded }: VideoPlayerProps) {
       );
       video.removeEventListener("timeupdate", handleTimeUpdate);
     };
-  }, [src, logVideoEvent, onTimeUpdate, onEnded]);
+  }, [src, logVideoEvent, onTimeUpdate, onEnded, discussionPoints, completedDiscussionIds, onDiscussionPoint]);
 
   return (
     <div className="relative w-full bg-black rounded-lg overflow-hidden">
