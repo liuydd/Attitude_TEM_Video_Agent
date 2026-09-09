@@ -375,7 +375,7 @@ A: WebM 格式录像可能缺少时长元数据，系统已通过 session 的 `s
 
 ## BrainLink Pro EEG 采集
 
-BrainLink Pro 必须连接运行实验控制台的 Windows 电脑，不能由远程 Linux 服务器直接采集。首次使用，在 `pcme-platform/server/` 运行 `uv sync --extra eeg`；从官方 SDK 取得适配 Python 3.11 的 `BrainLinkParser.pyd`，置于 `server/tools/vendor/BrainLinkParser.pyd`。
+BrainLink Pro 必须连接运行实验控制台的 Windows 电脑，不能由远程 Linux 服务器直接采集。首次使用，在 `pcme-platform/server/` 运行 `uv sync --extra eeg`；从官方 [SDK](https://www.macrotellect.com/web/developers.html#0) 取得适配 Python 3.11 的 `BrainLinkParser.pyd`，置于 `server/tools/vendor/BrainLinkParser.pyd`。
 
 在 Windows 蓝牙设置中配对头箍，并确认其**输出** COM 端口（例如 `COM6`）。每次实验前，在独立 PowerShell 窗口运行：
 
