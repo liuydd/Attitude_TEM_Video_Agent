@@ -202,6 +202,7 @@ pcme-platform/packages/lab-client/public/training-videos/
 ## 启动运行
 
 需要同时启动 **后端** + **所需的前端**，分三个终端窗口：
+启动前先使用蓝牙连接Brainlink头箍，确认传出端口（如 COM6），并在 Windows 蓝牙设置中配对。
 
 ```bash
 # 终端 1：启动后端服务（端口 8000）
