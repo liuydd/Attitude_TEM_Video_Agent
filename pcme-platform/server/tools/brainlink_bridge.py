@@ -20,7 +20,9 @@ try:
 except ImportError as exc:
     raise SystemExit("Put official BrainLinkParser.pyd (Python 3.11) in tools/vendor/") from exc
 
-ROOT = Path(__file__).resolve().parents[1]
+# tools/ lives at pcme-platform/server/tools; session data belongs to the
+# shared pcme-platform/data root used by FastAPI and the instructor dashboard.
+ROOT = Path(__file__).resolve().parents[2]
 def now_ms(): return time.time_ns() // 1_000_000
 
 class Bridge:
