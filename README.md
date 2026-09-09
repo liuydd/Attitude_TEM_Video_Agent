@@ -171,6 +171,8 @@ export OPENAI_API_KEY='your_openai_api_key'
 ### 3. 安装 Python 后端依赖
 
 ```bash
+conda create -n eeg python=3.11
+conda activate eeg
 cd pcme-platform/server
 uv sync --all-extras    # 安装全部依赖（含 dev 工具）
 cd ..
@@ -209,8 +211,9 @@ make server-dev
 # 终端 2：启动实验控制台（端口 5173）— 采集实验时使用
 make client-dev
 
-# 终端 3：启动教官工作台（端口 5174）— 回放评估时使用
-make instructor-dev
+
+# 终端 3: 启动EEG数据采集桥接程序（端口 COM6）— 采集实验时使用
+python .\server\tools\brainlink_bridge.py --port COM6
 ```
 
 启动后访问：
@@ -374,11 +377,11 @@ A: WebM 格式录像可能缺少时长元数据，系统已通过 session 的 `s
 
 BrainLink Pro 必须连接运行实验控制台的 Windows 电脑，不能由远程 Linux 服务器直接采集。首次使用，在 `pcme-platform/server/` 运行 `uv sync --extra eeg`；从官方 SDK 取得适配 Python 3.11 的 `BrainLinkParser.pyd`，置于 `server/tools/vendor/BrainLinkParser.pyd`。
 
-在 Windows 蓝牙设置中配对头箍，并确认其**输出** COM 端口（例如 `COM5`）。每次实验前，在独立 PowerShell 窗口运行：
+在 Windows 蓝牙设置中配对头箍，并确认其**输出** COM 端口（例如 `COM6`）。每次实验前，在独立 PowerShell 窗口运行：
 
 ```powershell
 cd pcme-platform/server
-.\.venv\Scripts\python.exe tools\brainlink_bridge.py --port COM5
+.\.venv\Scripts\python.exe tools\brainlink_bridge.py --port COM6
 ```
 
 桥接仅监听 `127.0.0.1:8765`。实验控制台显示“已连接 COMx”后，点击“开始实验”会以本次 session 的 `anchor_timestamp_ms` 自动开始 EEG 记录；点击“结束实验”会封存数据。若桥接或头箍未就绪，控制台不会开始实验。
@@ -392,3 +395,16 @@ data/physio_data/{session_id}/eeg/
 ```
 
 原始 EEG 是高频研究资料，不应直接在回放页面逐点绘制；离线分析前应先做信号质量检查、滤波、伪迹处理及降采样。实验结束后确认 `brainlink_raw.csv` 非空，并检查桥接窗口没有串口或解析错误。
+
+正式实验时仍需要在实验电脑上手动启动一次桥接程序；这是必要的，因为浏览器和远程后端不能直接访问 Windows 蓝牙 COM 端口。启动后无需手动开始或停止每次 EEG 记录：
+```
+cd pcme-platform
+conda activate eeg
+python .\server\tools\brainlink_bridge.py --port COM6
+```
+随后实验控制台会自动完成同步：
+1. 点击“开始实验”时，控制台创建 anchor_timestamp_ms。
+2. 控制台立刻把同一个 session ID 和 anchor 发给桥接的 /recordings/start。
+3. 桥接以该 session 目录写入原始 EEG，每条样本带 Unix 毫秒时间戳。
+4. 点击“结束实验”时，控制台调用 /recordings/stop 并封存 EEG 文件。
+5. EEG、摄像头、视频事件和语音都以 (timestamp_ms - anchor_timestamp_ms) / 1000 映射到同一相对时间轴。
