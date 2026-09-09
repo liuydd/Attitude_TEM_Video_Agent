@@ -12,7 +12,7 @@ dev-down:
 
 # Server
 server-dev:
-	cd server && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	cd server && uv run python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 server-test:
 	cd server && uv run pytest -v

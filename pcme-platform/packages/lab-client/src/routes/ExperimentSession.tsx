@@ -29,6 +29,7 @@ export function ExperimentSession() {
   const [showCameraPreview, setShowCameraPreview] = useState(false);
   const [discussionPoints, setDiscussionPoints] = useState<DiscussionPoint[]>([]);
   const [pendingPoint, setPendingPoint] = useState<DiscussionPoint | null>(null);
+  const [topicStage, setTopicStage] = useState<"discussion" | "questionnaire" | null>(null);
   const [completedPointIds, setCompletedPointIds] = useState<number[]>([]);
   const [resumeDiscussionId, setResumeDiscussionId] = useState<number | null>(null);
   const [eegStatus, setEegStatus] = useState("正在检查 BrainLink…");
@@ -84,6 +85,7 @@ export function ExperimentSession() {
     setCompletedPointIds((ids) => [...ids, pendingPoint.id]);
     setResumeDiscussionId(pendingPoint.id);
     setPendingPoint(null);
+    setTopicStage(null);
   };
 
   const handleStart = async () => {
@@ -227,11 +229,20 @@ export function ExperimentSession() {
               eventLogger.log("discussion_pause", { topic_id: point.id, prompt: point.prompt }, "video_player");
               setResumeDiscussionId(null);
               setPendingPoint(point);
+              setTopicStage("discussion");
             }}
           />
           <div className="mt-2 text-xs text-gray-500">
             视频进度: {videoTime.toFixed(1)}s · 事件数: {eventLogger.count}
           </div>
+          {pendingPoint && topicStage === "discussion" && (
+            <div className="mt-3 rounded-lg border border-amber-500/60 bg-amber-950/40 p-4">
+              <p className="font-medium text-amber-100">Topic {pendingPoint.id}：视频已暂停</p>
+              <p className="mt-2 text-sm text-amber-50">{pendingPoint.prompt}</p>
+              <p className="mt-3 text-xs text-amber-200/80">请使用右侧“开始对话”按钮与 AI 讨论；讨论结束后再填写问卷。</p>
+              <button type="button" onClick={() => { eventLogger.log("discussion_complete", { topic_id: pendingPoint.id }, "discussion"); setTopicStage("questionnaire"); }} className="mt-3 rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700">讨论完成，填写问卷</button>
+            </div>
+          )}
         </div>
 
         {/* Right sidebar - 1/4 width */}
@@ -317,12 +328,12 @@ export function ExperimentSession() {
           </div>
         </div>
       </div>
-      {pendingPoint && (
+      {pendingPoint && topicStage === "questionnaire" && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 p-6">
           <div className="mx-auto max-w-3xl rounded-lg bg-gray-900 p-6">
-            <h2 className="mb-3 text-xl font-bold">Topic {pendingPoint.id}：讨论与态度测量</h2>
+            <h2 className="mb-3 text-xl font-bold">Topic {pendingPoint.id}：态度测量</h2>
             <p className="mb-6 rounded bg-gray-800 p-4 text-gray-200">{pendingPoint.prompt}</p>
-            <p className="mb-4 text-sm text-gray-400">请先完成与 AI 的讨论；随后填写问卷。提交后视频将自动继续播放。</p>
+            <p className="mb-4 text-sm text-gray-400">请根据刚才与 AI 的讨论填写。提交后视频将自动继续播放。</p>
             <AttitudeQuestionnaire title="请评价本主题及当前的 AI 整体表现" topic overall onSubmit={submitTopicAttitude} />
           </div>
         </div>
