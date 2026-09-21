@@ -10,16 +10,14 @@ import type { Experiment, Participant, Session } from "@/types/experiment";
 const experimentSchema = z.object({
   name: z.string().min(1, "实验名称不能为空"),
   description: z.string().optional(),
-  group_type: z.enum(["control", "experimental"]),
+  group_type: z.literal("experimental"),
   training_video_filename: z.string().min(1, "请输入视频文件名"),
 });
 
 const participantSchema = z.object({
-  student_id: z.string().min(1, "学号不能为空"),
   name: z.string().min(1, "姓名不能为空"),
   age: z.coerce.number().int().positive().optional(),
   gender: z.string().optional(),
-  flight_hours: z.coerce.number().nonnegative().optional(),
 });
 
 type ExperimentForm = z.infer<typeof experimentSchema>;
@@ -37,14 +35,14 @@ export function ExperimentSetup() {
     defaultValues: {
       name: "",
       description: "",
-      group_type: "control",
+      group_type: "experimental",
       training_video_filename: "",
     },
   });
 
   const partForm = useForm<ParticipantForm>({
     resolver: zodResolver(participantSchema),
-    defaultValues: { student_id: "", name: "", gender: "" },
+    defaultValues: { name: "", gender: "" },
   });
 
   const onCreateExperiment = async (data: ExperimentForm) => {
@@ -69,7 +67,7 @@ export function ExperimentSetup() {
       } catch {
         // If 409 conflict, participant already exists — that's fine for re-use
         // For now, we just re-post and handle gracefully
-        throw new Error("被试注册失败，请检查学号是否重复");
+        throw new Error("被试注册失败，请稍后重试");
       }
       setParticipant(participant);
 
@@ -134,16 +132,6 @@ export function ExperimentSetup() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm mb-1">实验组别</label>
-              <select
-                {...expForm.register("group_type")}
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm"
-              >
-                <option value="control">对照组（人人讨论）</option>
-                <option value="experimental">实验组（人机交互）</option>
-              </select>
-            </div>
 
             <div>
               <label className="block text-sm mb-1">训练视频文件名</label>
@@ -171,13 +159,6 @@ export function ExperimentSetup() {
             onSubmit={partForm.handleSubmit(onCreateParticipantAndSession)}
             className="space-y-4 bg-gray-900 p-6 rounded-lg"
           >
-            <div>
-              <label className="block text-sm mb-1">学号</label>
-              <input
-                {...partForm.register("student_id")}
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm"
-              />
-            </div>
 
             <div>
               <label className="block text-sm mb-1">姓名</label>
@@ -187,7 +168,7 @@ export function ExperimentSetup() {
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm mb-1">年龄</label>
                 <input
@@ -207,15 +188,7 @@ export function ExperimentSetup() {
                   <option value="female">女</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-sm mb-1">飞行小时</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  {...partForm.register("flight_hours")}
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm"
-                />
-              </div>
+
             </div>
 
             <div className="flex gap-3">

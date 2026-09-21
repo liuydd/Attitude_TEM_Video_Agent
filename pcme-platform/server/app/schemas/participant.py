@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class ParticipantCreate(BaseModel):
-    student_id: str = Field(..., max_length=100)
+    student_id: str | None = Field(default=None, max_length=100)
     name: str = Field(..., max_length=100)
     age: int | None = None
     gender: str | None = None
