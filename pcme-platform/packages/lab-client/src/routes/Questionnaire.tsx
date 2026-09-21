@@ -16,6 +16,8 @@ export function Questionnaire() {
   }
 
   const handleSubmit = async (answers: Record<string, number>) => {
+    const { overall_task_difficulty, ...nasaTlxAnswers } = answers;
+
     setIsSubmitting(true);
     try {
       // Log questionnaire submission event
@@ -29,10 +31,21 @@ export function Questionnaire() {
       await api.post(`sessions/${session.id}/questionnaires`, {
         json: {
           questionnaire_type: "nasa_tlx",
-          answers,
+          answers: nasaTlxAnswers,
         },
       });
 
+      await api.post(`sessions/${session.id}/questionnaires`, {
+        json: {
+          questionnaire_type: "task_difficulty_rating",
+          answers: { overall_task_difficulty },
+        },
+      });
+      eventLogger.log(
+        "questionnaire_submit",
+        { questionnaire_type: "task_difficulty_rating", overall_task_difficulty },
+        "questionnaire"
+      );
       // Update session status
       await api.patch(`sessions/${session.id}`, {
         json: { status: "uploading" },

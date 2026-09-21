@@ -12,16 +12,19 @@ const NASA_TLX_DIMENSIONS = [
   { key: "frustration", label: "挫败感", desc: "你在任务过程中感到多大程度的沮丧或焦虑？" },
 ] as const;
 
-const schema = z.object(
-  Object.fromEntries(
-    NASA_TLX_DIMENSIONS.map((d) => [d.key, z.number().min(0).max(100)])
-  ) as Record<string, z.ZodNumber>
-);
+const schema = z
+  .object(
+    Object.fromEntries(
+      NASA_TLX_DIMENSIONS.map((d) => [d.key, z.number().min(0).max(100)])
+    ) as Record<string, z.ZodNumber>
+  )
+  .extend({ overall_task_difficulty: z.number().int().min(1).max(5) });
 
-type NasaTlxForm = z.infer<typeof schema>;
+type QuestionnaireAnswers = z.infer<typeof schema>;
+type NasaTlxKey = (typeof NASA_TLX_DIMENSIONS)[number]["key"];
 
 interface QuestionnaireFormProps {
-  onSubmit: (answers: NasaTlxForm) => void;
+  onSubmit: (answers: QuestionnaireAnswers) => void;
   isSubmitting?: boolean;
 }
 
@@ -30,11 +33,12 @@ export function QuestionnaireForm({ onSubmit, isSubmitting }: QuestionnaireFormP
     control,
     handleSubmit,
     formState: { errors },
-  } = useForm<NasaTlxForm>({
+  } = useForm<QuestionnaireAnswers>({
     resolver: zodResolver(schema),
-    defaultValues: Object.fromEntries(
-      NASA_TLX_DIMENSIONS.map((d) => [d.key, 50])
-    ) as NasaTlxForm,
+    defaultValues: {
+      ...Object.fromEntries(NASA_TLX_DIMENSIONS.map((d) => [d.key, 50])),
+      overall_task_difficulty: undefined,
+    } as QuestionnaireAnswers,
   });
 
   return (
@@ -56,7 +60,7 @@ export function QuestionnaireForm({ onSubmit, isSubmitting }: QuestionnaireFormP
           </div>
           <p className="text-xs text-gray-400">{dim.desc}</p>
           <Controller
-            name={dim.key as keyof NasaTlxForm}
+            name={dim.key as NasaTlxKey}
             control={control}
             render={({ field }) => (
               <div className="flex items-center gap-3">
@@ -79,6 +83,40 @@ export function QuestionnaireForm({ onSubmit, isSubmitting }: QuestionnaireFormP
         </div>
       ))}
 
+      <fieldset className="space-y-3 border-t border-gray-700 pt-6">
+        <legend className="text-sm font-medium text-gray-200">总体感知任务难度</legend>
+        <p className="text-xs text-gray-400">
+          总体而言，你认为刚才完成的任务难度是？此题独立记录，不计入 NASA-TLX 分数。
+        </p>
+        <Controller
+          name="overall_task_difficulty"
+          control={control}
+          render={({ field }) => (
+            <div className="flex gap-2" role="radiogroup" aria-label="总体感知任务难度">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  onClick={() => field.onChange(value)}
+                  aria-pressed={field.value === value}
+                  className={`h-10 flex-1 rounded text-sm font-medium transition-colors ${
+                    field.value === value
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-700 text-gray-200 hover:bg-gray-600"
+                  }`}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+          )}
+        />
+        <div className="flex justify-between text-xs text-gray-500">
+          <span>1 = 非常容易</span>
+          <span>5 = 非常困难</span>
+        </div>
+        {errors.overall_task_difficulty && <p className="text-red-400 text-xs">请选择一个评分</p>}
+      </fieldset>
       <button
         type="submit"
         disabled={isSubmitting}
