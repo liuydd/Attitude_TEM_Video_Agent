@@ -86,7 +86,7 @@ export function QuestionnaireForm({ onSubmit, isSubmitting }: QuestionnaireFormP
       <fieldset className="space-y-3 border-t border-gray-700 pt-6">
         <legend className="text-sm font-medium text-gray-200">总体感知任务难度</legend>
         <p className="text-xs text-gray-400">
-          总体而言，你认为刚才完成的任务难度是？此题独立记录，不计入 NASA-TLX 分数。
+          总体而言，你认为刚才完成的任务难度是？
         </p>
         <Controller
           name="overall_task_difficulty"
