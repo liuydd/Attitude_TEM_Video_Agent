@@ -33,6 +33,7 @@ export function ExperimentSession() {
   const [completedPointIds, setCompletedPointIds] = useState<number[]>([]);
   const [resumeDiscussionId, setResumeDiscussionId] = useState<number | null>(null);
   const [eegStatus, setEegStatus] = useState("正在检查 BrainLink…");
+  const [isEegRecording, setIsEegRecording] = useState(false);
   const EEG_BRIDGE_URL = "http://127.0.0.1:8765";
 
   const videoTimeRef = useRef(0);
@@ -105,16 +106,19 @@ export function ExperimentSession() {
     // 2. Anchor timestamp
     const anchor = timeAnchor.start();
 
+    let eegRecording = false;
     try {
       const response = await fetch(`${EEG_BRIDGE_URL}/recordings/start`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: session.id, anchor_timestamp_ms: anchor }),
       });
       if (!response.ok) throw new Error((await response.json()).error ?? "EEG bridge error");
+      eegRecording = true;
+      setIsEegRecording(true);
       setEegStatus("EEG 原始波形采集中");
-    } catch (e) {
-      alert(`无法开始 EEG 采集：${e instanceof Error ? e.message : String(e)}`);
-      return;
+    } catch {
+      setIsEegRecording(false);
+      setEegStatus("EEG 未启动，本次实验不采集 EEG");
     }
 
     // 3. Start recording
@@ -131,7 +135,7 @@ export function ExperimentSession() {
     });
     updateSessionStatus("recording");
 
-    eventLogger.log("session_start", { anchor_timestamp_ms: anchor }, "system");
+    eventLogger.log("session_start", { anchor_timestamp_ms: anchor, eeg_recording: eegRecording }, "system");
     setIsStarted(true);
   };
 
@@ -147,12 +151,16 @@ export function ExperimentSession() {
       voiceChat.stop();
     }
 
-    try {
-      const response = await fetch(`${EEG_BRIDGE_URL}/recordings/stop`, { method: "POST" });
-      const result = await response.json();
-      setEegStatus(`EEG 已保存：${result.sample_count ?? 0} 个原始采样`);
-    } catch (e) {
-      setEegStatus(`EEG 停止请求失败：${e instanceof Error ? e.message : String(e)}`);
+    if (isEegRecording) {
+      try {
+        const response = await fetch(`${EEG_BRIDGE_URL}/recordings/stop`, { method: "POST" });
+        const result = await response.json();
+        setEegStatus(`EEG 已保存：${result.sample_count ?? 0} 个原始采样`);
+      } catch (e) {
+        setEegStatus(`EEG 停止请求失败：${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setIsEegRecording(false);
+      }
     }
 
     // Stop recording
@@ -161,7 +169,7 @@ export function ExperimentSession() {
     setRecordingResult(result);
     recorderRef.current.release();
 
-    eventLogger.log("session_end", { total_events: eventLogger.count }, "system");
+    eventLogger.log("session_end", { total_events: eventLogger.count, eeg_recording: isEegRecording }, "system");
 
     // Update session status
     await api.patch(`sessions/${session.id}`, {
