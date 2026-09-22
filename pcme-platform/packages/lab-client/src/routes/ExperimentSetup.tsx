@@ -11,6 +11,12 @@ const experimentSchema = z.object({
   name: z.string().min(1, "实验名称不能为空"),
   description: z.string().optional(),
   group_type: z.literal("experimental"),
+  persona_condition: z.enum([
+    "high_warmth_high_competence",
+    "low_warmth_high_competence",
+    "high_warmth_low_competence",
+    "low_warmth_low_competence",
+  ]),
   training_video_filename: z.string().min(1, "请输入视频文件名"),
 });
 
@@ -22,6 +28,13 @@ const participantSchema = z.object({
 
 type ExperimentForm = z.infer<typeof experimentSchema>;
 type ParticipantForm = z.infer<typeof participantSchema>;
+
+const PERSONA_CONDITIONS = {
+  high_warmth_high_competence: { label: "专业且友好的助手", warmth: "high", competence: "high" },
+  low_warmth_high_competence: { label: "专业但冷淡的助手", warmth: "low", competence: "high" },
+  high_warmth_low_competence: { label: "友好但能力不足的助手", warmth: "high", competence: "low" },
+  low_warmth_low_competence: { label: "冷淡且能力不足的助手", warmth: "low", competence: "low" },
+} as const;
 
 export function ExperimentSetup() {
   const navigate = useNavigate();
@@ -36,6 +49,7 @@ export function ExperimentSetup() {
       name: "",
       description: "",
       group_type: "experimental",
+      persona_condition: "high_warmth_high_competence",
       training_video_filename: "",
     },
   });
@@ -48,7 +62,18 @@ export function ExperimentSetup() {
   const onCreateExperiment = async (data: ExperimentForm) => {
     try {
       setError(null);
-      const exp = await api.post("experiments", { json: data }).json<Experiment>();
+      const { persona_condition, ...experimentData } = data;
+      const persona = PERSONA_CONDITIONS[persona_condition];
+      const exp = await api.post("experiments", {
+        json: {
+          ...experimentData,
+          config: {
+            persona_condition,
+            warmth_level: persona.warmth,
+            competence_level: persona.competence,
+          },
+        },
+      }).json<Experiment>();
       setCurrentExperiment(exp);
       setExperiment(exp);
       setStep("participant");
@@ -133,6 +158,22 @@ export function ExperimentSetup() {
             </div>
 
 
+            <div>
+              <label className="block text-sm mb-1">AI Persona 条件</label>
+              <select
+                {...expForm.register("persona_condition")}
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm"
+              >
+                {Object.entries(PERSONA_CONDITIONS).map(([value, persona]) => (
+                  <option key={value} value={value}>
+                    {persona.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-400">
+                该条件会固定应用于本次实验中的全部 AI 语音交互。
+              </p>
+            </div>
             <div>
               <label className="block text-sm mb-1">训练视频文件名</label>
               <input
